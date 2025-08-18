@@ -93,7 +93,7 @@ curl https://your-coolify-domain.com/enrollments
 Test locally with Stripe CLI:
 ```bash
 # Forward webhooks to local server
-stripe listen --forward-to localhost:8787/stripe-webhook
+stripe listen --forward-to localhost:8788/stripe-webhook
 
 # Trigger test events
 stripe trigger checkout.session.completed

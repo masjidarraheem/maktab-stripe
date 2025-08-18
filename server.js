@@ -260,5 +260,5 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
   res.sendStatus(200);
 });
 
-const PORT = process.env.PORT || 8787;
+const PORT = process.env.PORT || 8788;
 app.listen(PORT, () => console.log(`API listening on ${PORT}`));

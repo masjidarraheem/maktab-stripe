@@ -103,7 +103,7 @@ CANCEL_URL=https://your-website.com/cancel
 ### 2. Test Webhook Events
 Use Stripe CLI to test locally:
 ```bash
-stripe listen --forward-to localhost:8787/stripe-webhook
+stripe listen --forward-to localhost:8788/stripe-webhook
 ```
 
 Trigger test events:
