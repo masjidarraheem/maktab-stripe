@@ -14,10 +14,48 @@ const {
   STRIPE_WEBHOOK_SECRET         // set after you add the webhook in Stripe
 } = process.env;
 
+// Simple in-memory store (replace with database in production)
+const enrollments = new Map();
+const webhookEvents = new Map();
+
 const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' });
 
 const app = express();
-app.use(cors());
+
+// CORS configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // In production, replace with your actual domains
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:8080',
+      /\.typebot\.io$/,  // Allow any Typebot subdomain
+      // Add your production domains here:
+      // 'https://your-domain.com',
+      // 'https://your-typebot-instance.com'
+    ];
+    
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (allowed instanceof RegExp) return allowed.test(origin);
+      return allowed === origin;
+    });
+    
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      console.warn(`⚠️  CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature']
+};
+
+app.use(cors(corsOptions));
 
 // IMPORTANT: JSON for normal routes, RAW for webhook route
 app.use((req, res, next) => {
@@ -39,6 +77,25 @@ function makeSubItemsTiered(n) {
 
 // Healthcheck (Coolify will like this)
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+// Get all enrollments (for admin dashboard)
+app.get('/enrollments', (req, res) => {
+  const allEnrollments = Array.from(enrollments.values());
+  res.json({
+    total: allEnrollments.length,
+    active: allEnrollments.filter(e => e.status === 'active').length,
+    enrollments: allEnrollments
+  });
+});
+
+// Get specific enrollment by customer ID
+app.get('/enrollment/:customerId', (req, res) => {
+  const enrollment = enrollments.get(req.params.customerId);
+  if (!enrollment) {
+    return res.status(404).json({ error: 'Enrollment not found' });
+  }
+  res.json(enrollment);
+});
 
 /**
  * POST /create-maktab-checkout
@@ -94,32 +151,110 @@ app.post('/create-maktab-checkout', async (req, res) => {
 });
 
 // Stripe webhook (must receive RAW body)
-app.post('/stripe-webhook', express.raw({ type: 'application/json' }), (req, res) => {
+app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   let event;
   try {
     const sig = req.headers['stripe-signature'];
     event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
   } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
+    console.error('❌ Webhook signature verification failed:', err.message);
     return res.sendStatus(400);
   }
 
+  // Prevent duplicate processing
+  if (webhookEvents.has(event.id)) {
+    console.log(`⚠️  Duplicate webhook event: ${event.id}`);
+    return res.sendStatus(200);
+  }
+  webhookEvents.set(event.id, Date.now());
+
+  console.log(`📨 Webhook received: ${event.type} [${event.id}]`);
+
   // Handle events you care about
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object;
-      // TODO: mark family enrolled in your DB
-      break;
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        console.log(`✅ Checkout completed for: ${session.customer_email}`);
+        
+        // Store enrollment data
+        const enrollment = {
+          sessionId: session.id,
+          customerId: session.customer,
+          customerEmail: session.customer_email,
+          subscriptionId: session.subscription,
+          metadata: session.metadata,
+          students: session.metadata?.students,
+          numChildren: session.metadata?.numChildren,
+          notes: session.metadata?.notes,
+          enrolledAt: new Date().toISOString(),
+          status: 'active'
+        };
+        
+        enrollments.set(session.customer, enrollment);
+        console.log(`📝 Enrollment recorded for customer: ${session.customer}`);
+        
+        // TODO: Send confirmation email to parent
+        // TODO: Notify admin of new enrollment
+        // TODO: Create accounts in your learning management system
+        
+        break;
+      }
+      
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object;
+        console.log(`💰 Payment received from: ${invoice.customer_email} - Amount: $${(invoice.amount_paid / 100).toFixed(2)}`);
+        
+        // Update enrollment payment history
+        const enrollment = enrollments.get(invoice.customer);
+        if (enrollment) {
+          if (!enrollment.payments) enrollment.payments = [];
+          enrollment.payments.push({
+            invoiceId: invoice.id,
+            amount: invoice.amount_paid,
+            date: new Date().toISOString()
+          });
+        }
+        break;
+      }
+      
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object;
+        console.log(`🚫 Subscription cancelled: ${subscription.id}`);
+        
+        // Mark enrollment as cancelled
+        for (const [customerId, enrollment] of enrollments.entries()) {
+          if (enrollment.subscriptionId === subscription.id) {
+            enrollment.status = 'cancelled';
+            enrollment.cancelledAt = new Date().toISOString();
+            console.log(`📝 Marked enrollment as cancelled for customer: ${customerId}`);
+          }
+        }
+        break;
+      }
+      
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        console.log(`⚠️  Payment failed for: ${invoice.customer_email}`);
+        
+        // Mark enrollment as at-risk
+        const enrollment = enrollments.get(invoice.customer);
+        if (enrollment) {
+          enrollment.status = 'payment_failed';
+          enrollment.lastFailedPayment = new Date().toISOString();
+        }
+        
+        // TODO: Send payment failure notification to parent
+        // TODO: Notify admin of payment issue
+        break;
+      }
+      
+      default:
+        console.log(`ℹ️  Unhandled event type: ${event.type}`);
     }
-    case 'invoice.payment_succeeded': {
-      // TODO: mark monthly payment received
-      break;
-    }
-    case 'customer.subscription.deleted':
-    case 'invoice.payment_failed': {
-      // TODO: pause/remove enrollment
-      break;
-    }
+  } catch (err) {
+    console.error(`❌ Error processing ${event.type}:`, err);
+    // Don't return error to Stripe, just log it
   }
 
   res.sendStatus(200);

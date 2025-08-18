@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # Your Node.js application
+  app:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      - NODE_ENV=development
+      - PORT=8787
+      # Copy your Stripe keys here or use .env file
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - REGISTRATION_PRICE_ID=${REGISTRATION_PRICE_ID}
+      - TUITION_FIRST_PRICE_ID=${TUITION_FIRST_PRICE_ID}
+      - TUITION_SECOND_PRICE_ID=${TUITION_SECOND_PRICE_ID}
+      - TUITION_THIRDPLUS_PRICE_ID=${TUITION_THIRDPLUS_PRICE_ID}
+      - SUCCESS_URL=${SUCCESS_URL}
+      - CANCEL_URL=${CANCEL_URL}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      # Optional: Database connection (uncomment when ready)
+      # - DATABASE_URL=postgresql://maktab:password@postgres:5432/maktab_db
+    depends_on:
+      - postgres
+    volumes:
+      - .:/app
+      - /app/node_modules
+    networks:
+      - maktab-network
+
+  # PostgreSQL database (optional - for production use)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=maktab
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=maktab_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - maktab-network
+
+  # Adminer for database management (optional)
+  adminer:
+    image: adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - maktab-network
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+
+networks:
+  maktab-network:
+    driver: bridge
