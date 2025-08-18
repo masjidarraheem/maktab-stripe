@@ -22,40 +22,24 @@ const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' });
 
 const app = express();
 
-// CORS configuration
+// CORS configuration - TEMPORARY: Allow all origins for testing
+// TODO: Restrict this in production!
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // In production, replace with your actual domains
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:8080',
-      /\.typebot\.io$/,  // Allow any Typebot subdomain
-      // Add your production domains here:
-      // 'https://your-domain.com',
-      // 'https://your-typebot-instance.com'
-    ];
-    
-    const isAllowed = allowedOrigins.some(allowed => {
-      if (allowed instanceof RegExp) return allowed.test(origin);
-      return allowed === origin;
-    });
-    
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.warn(`⚠️  CORS blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true,  // Allow all origins temporarily for testing
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature']
+  methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 };
 
 app.use(cors(corsOptions));
+
+// Log all incoming requests for debugging
+app.use((req, res, next) => {
+  console.log(`📥 ${new Date().toISOString()} - ${req.method} ${req.path} from ${req.headers.origin || 'no-origin'}`);
+  next();
+});
 
 // IMPORTANT: JSON for normal routes, RAW for webhook route
 app.use((req, res, next) => {
@@ -109,13 +93,26 @@ app.get('/enrollment/:customerId', (req, res) => {
  * }
  */
 app.post('/create-maktab-checkout', async (req, res) => {
+  console.log('📍 /create-maktab-checkout called');
+  console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
+  console.log('📋 Headers:', JSON.stringify(req.headers, null, 2));
+  
   try {
     const { parentEmail, numChildren, students, notes } = req.body || {};
-    if (!parentEmail) return res.status(400).json({ error: { message: 'parentEmail required' } });
+    
+    // Validate required fields
+    if (!parentEmail) {
+      console.error('❌ Missing parentEmail');
+      return res.status(400).json({ error: { message: 'parentEmail required' } });
+    }
+    
     const n = Number(numChildren);
     if (!Number.isInteger(n) || n < 1) {
+      console.error('❌ Invalid numChildren:', numChildren);
       return res.status(400).json({ error: { message: 'numChildren must be integer >= 1' } });
     }
+    
+    console.log(`✅ Valid request: ${parentEmail}, ${n} children`);
 
     const regItems = [{ price: REGISTRATION_PRICE_ID, quantity: n }];
     const subItems = makeSubItemsTiered(n);
