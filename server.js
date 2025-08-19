@@ -147,7 +147,7 @@ app.post('/create-maktab-checkout', async (req, res) => {
     
     console.log(`✅ Valid request: ${parentEmail}, ${n} children`);
 
-    const regItems = [{ price: REGISTRATION_PRICE_ID, quantity: n }];
+    const regItems = [{ price: REGISTRATION_PRICE_ID, quantity: 1 }];  // Flat $100 registration fee
     const subItems = makeSubItemsTiered(n);
 
     const session = await stripe.checkout.sessions.create({
