@@ -152,8 +152,7 @@ app.post('/create-maktab-checkout', async (req, res) => {
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      customer_creation: 'always',
-      customer_email: parentEmail,
+      customer_email: parentEmail,  // This automatically creates a customer in subscription mode
       line_items: [...regItems, ...subItems],   // mixed cart: one-time + subscription items
       success_url: SUCCESS_URL,
       cancel_url: CANCEL_URL,
