@@ -9,8 +9,8 @@ const {
   TUITION_FIRST_PRICE_ID,       // $100/mo
   TUITION_SECOND_PRICE_ID,      // $75/mo (first sibling)
   TUITION_THIRDPLUS_PRICE_ID,   // $50/mo (each additional sibling after first)
-  SUCCESS_URL = 'https://your.site/success?session_id={CHECKOUT_SESSION_ID}',
-  CANCEL_URL  = 'https://your.site/cancel',
+  SUCCESS_URL = 'https://maktab.rodeomasjid.org/success?session_id={CHECKOUT_SESSION_ID}',
+  CANCEL_URL  = 'https://maktab.rodeomasjid.org/cancel',
   STRIPE_WEBHOOK_SECRET         // set after you add the webhook in Stripe
 } = process.env;
 
@@ -98,7 +98,40 @@ app.post('/create-maktab-checkout', async (req, res) => {
   console.log('📋 Headers:', JSON.stringify(req.headers, null, 2));
   
   try {
-    const { parentEmail, numChildren, students, notes } = req.body || {};
+    let parentEmail, numChildren, students, notes;
+    
+    // Check if request is from Typebot (has variables array)
+    if (req.body?.variables && Array.isArray(req.body.variables)) {
+      console.log('🤖 Typebot format detected, extracting from variables array');
+      const vars = {};
+      req.body.variables.forEach(v => {
+        vars[v.name] = v.value;
+      });
+      
+      // Extract parent email
+      parentEmail = vars.parentEmail || vars.email || vars.parent_email;
+      
+      // Count number of students from individual student variables
+      const studentNames = [];
+      // Check for numbered student variables (student, student1, student2, etc.)
+      const studentKeys = Object.keys(vars).filter(key => key.match(/^student\d*$/));
+      studentKeys.sort(); // Ensure proper order
+      
+      studentKeys.forEach(key => {
+        if (vars[key] && vars[key].trim()) {
+          studentNames.push(vars[key].trim());
+        }
+      });
+      
+      numChildren = studentNames.length || vars.numChildren || vars.num_children;
+      students = studentNames.join(', ') || vars.students || '';
+      notes = vars.notes || '';
+      
+      console.log(`📊 Extracted: email=${parentEmail}, children=${numChildren}, students=${students}`);
+    } else {
+      // Original format for direct API calls
+      ({ parentEmail, numChildren, students, notes } = req.body || {});
+    }
     
     // Validate required fields
     if (!parentEmail) {
